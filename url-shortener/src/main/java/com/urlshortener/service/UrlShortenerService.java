@@ -140,9 +140,9 @@ public class UrlShortenerService {
     @Cacheable(value = "urls", key = "#shortCode")
     public String getLongUrl(String shortCode) {
         log.info("========== GET LONG URL REQUEST ==========");
-        log.info("Short code: {}", shortCode);
+        log.info("getLongUrl :: Short code: {}", shortCode);
 
-        log.debug("Looking up short code in database...");
+        log.debug("getLongUrl :: Looking up short code in database...");
         Url url = urlRepository.findByShortCode(shortCode)
                 .orElseThrow(() -> {
                     log.error("URL not found for short code: {}", shortCode);

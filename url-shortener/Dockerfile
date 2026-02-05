@@ -1,6 +1,6 @@
 # Multi-stage build for URL Shortener
 # Stage 1: Build
-FROM maven:3.8.6-eclipse-temurin-17 AS build
+FROM --platform=linux/amd64 maven:3.8.6-eclipse-temurin-17 AS build
 WORKDIR /app
 
 # Copy pom.xml first for dependency caching
@@ -12,7 +12,7 @@ COPY src ./src
 RUN mvn clean package -DskipTests
 
 # Stage 2: Runtime
-FROM eclipse-temurin:17-jre
+FROM --platform=linux/amd64 eclipse-temurin:17-jre
 WORKDIR /app
 
 # Copy the built jar from build stage
