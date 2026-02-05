@@ -12,22 +12,23 @@
 # Maven
 target/
 !.mvn/wrapper/maven-wrapper.jar
-pom.xml.tag
-pom.xml.releaseBackup
-pom.xml.versionsBackup
-pom.xml.next
-release.properties
-dependency-reduced-pom.xml
-buildNumber.properties
-.mvn/timing.properties
+*.pom.xml.tag
+*.pom.xml.releaseBackup
+*.pom.xml.versionsBackup
+*.pom.xml.next
+*.release.properties
+*.dependency-reduced-pom.xml
+*.buildNumber.properties
+*.mvn/timing.properties
 .mvn/wrapper/maven-wrapper.jar
-
+*.mvn/wrapper/maven-wrapper.jar
 # IDE - IntelliJ IDEA
-.idea/
+*.idea/
 *.iws
 *.iml
 *.ipr
-out/
+*.out
+*.out/
 
 # IDE - Eclipse
 .apt_generated
@@ -42,10 +43,10 @@ out/
 .vscode/
 
 # IDE - NetBeans
-/nbproject/private/
-/nbbuild/
+*.nbproject/private/
+*.nbbuild/
 /dist/
-/nbdist/
+*.nbdist/
 /.nb-gradle/
 
 # OS
