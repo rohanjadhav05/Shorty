@@ -24,6 +24,7 @@ import javax.validation.Valid;
 /**
  * REST Controller for URL shortening operations.
  */
+@CrossOrigin("*")
 @RestController
 @Tag(name = "URL Shortener", description = "APIs for URL shortening operations")
 public class UrlShortenerController {
