@@ -84,16 +84,8 @@ public class UrlShortenerController {
         return ResponseEntity.ok(longUrl);
     }
 
-    @Operation(summary = "Redirect to long URL", 
-               description = "Redirects the user to the original long URL (use in browser)")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "302", description = "Redirect to long URL"),
-            @ApiResponse(responseCode = "404", description = "Short code not found"),
-            @ApiResponse(responseCode = "410", description = "URL has expired")
-    })
     @GetMapping("/{shortCode}")
     public RedirectView redirectToLongUrl(
-            @Parameter(description = "The short code to redirect", example = "ABC1234")
             @PathVariable String shortCode) {
         log.info("[GET /{}] Incoming redirect request", shortCode);
         

@@ -9,6 +9,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import com.urlshortener.qr.QrGenerator;
+
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -103,6 +105,21 @@ public class GlobalExceptionHandler {
         log.debug("Stack trace:", ex);
         log.warn("=================================================");
         return buildErrorResponse(ex.getMessage(), HttpStatus.BAD_REQUEST);
+    }
+
+    /**
+     * Handles QR code generation exceptions.
+     *
+     * @param ex The exception
+     * @return Error response with 500 status
+     */
+    @ExceptionHandler(QrGenerator.QrGenerationException.class)
+    public ResponseEntity<Map<String, Object>> handleQrGenerationException(QrGenerator.QrGenerationException ex) {
+        log.error("========== QR GENERATION EXCEPTION ==========");
+        log.error("Message: {}", ex.getMessage());
+        log.error("Stack trace:", ex);
+        log.error("==============================================");
+        return buildErrorResponse("Failed to generate QR code: " + ex.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
     /**

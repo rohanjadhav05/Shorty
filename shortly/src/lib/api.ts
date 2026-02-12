@@ -127,3 +127,24 @@ export async function healthCheck(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Generates a QR code for a URL
+ * The backend shortens the URL first, then generates a QR code from the short URL
+ * @param url - The URL to encode in the QR code
+ * @param size - Optional size of the QR code in pixels (default 300)
+ * @returns Blob containing the PNG image data
+ * @throws ApiError if the request fails
+ */
+export async function generateQrCode(url: string, size?: number): Promise<Blob> {
+  try {
+    const response = await apiClient.post('/api/qr/generate', 
+      { url, size },
+      { responseType: 'blob' }
+    );
+    return response.data;
+  } catch (error) {
+    const message = extractErrorMessage(error);
+    throw { message } as ApiError;
+  }
+}

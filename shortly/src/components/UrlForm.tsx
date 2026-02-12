@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, FormEvent, useCallback } from "react";
+import { useState, FormEvent, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Link2, Sparkles, Clock } from "lucide-react";
+import { Loader2, Link2, Sparkles, Clock, CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { shortenUrl } from "@/lib/api";
 import { ShortenRequest, ShortenResponse, ApiError } from "@/lib/types";
@@ -22,6 +22,7 @@ export function UrlForm({ onSuccess }: UrlFormProps) {
   const [expirationDays, setExpirationDays] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [touched, setTouched] = useState(false);
 
   /**
    * Validates the URL format
@@ -55,10 +56,27 @@ export function UrlForm({ onSuccess }: UrlFormProps) {
   }, []);
 
   /**
+   * Real-time URL validation status
+   */
+  const urlValidation = useMemo(() => {
+    if (!longUrl.trim()) {
+      return { isValid: false, message: "", showStatus: false };
+    }
+    
+    const isValid = isValidUrl(longUrl);
+    return {
+      isValid,
+      message: isValid ? "Valid URL" : "URL must start with http:// or https://",
+      showStatus: touched || longUrl.length > 5,
+    };
+  }, [longUrl, touched, isValidUrl]);
+
+  /**
    * Handles form submission
    */
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    setTouched(true);
 
     // Validate URL
     if (!isValidUrl(longUrl)) {
@@ -99,11 +117,28 @@ export function UrlForm({ onSuccess }: UrlFormProps) {
       setCustomAlias("");
       setExpirationDays("");
       setShowAdvanced(false);
+      setTouched(false);
     } catch (error) {
       const apiError = error as ApiError;
       toast.error(apiError.message || "Failed to shorten URL. Please try again.");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  /**
+   * Handle URL input change
+   */
+  const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setLongUrl(e.target.value);
+  };
+
+  /**
+   * Handle input blur to show validation
+   */
+  const handleUrlBlur = () => {
+    if (longUrl.trim()) {
+      setTouched(true);
     }
   };
 
@@ -118,19 +153,48 @@ export function UrlForm({ onSuccess }: UrlFormProps) {
           <Link2 className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
           <Input
             id="longUrl"
-            type="url"
+            type="text"
             placeholder="https://example.com/your-very-long-url-here"
             value={longUrl}
-            onChange={(e) => setLongUrl(e.target.value)}
+            onChange={handleUrlChange}
+            onBlur={handleUrlBlur}
             disabled={isLoading}
-            className="pl-12 h-14 text-base bg-input/50 border-border/50 focus:border-primary focus:ring-primary placeholder:text-muted-foreground/50"
+            className={`pl-12 pr-12 h-14 text-base bg-input/50 border-border/50 placeholder:text-muted-foreground/50 transition-colors ${
+              urlValidation.showStatus
+                ? urlValidation.isValid
+                  ? "border-green-500/50 focus:border-green-500 focus:ring-green-500/20"
+                  : "border-red-500/50 focus:border-red-500 focus:ring-red-500/20"
+                : "focus:border-primary focus:ring-primary"
+            }`}
             required
             aria-describedby="url-hint"
+            aria-invalid={urlValidation.showStatus && !urlValidation.isValid}
           />
+          {/* Validation Icon */}
+          {urlValidation.showStatus && (
+            <div className="absolute right-4 top-1/2 -translate-y-1/2">
+              {urlValidation.isValid ? (
+                <CheckCircle2 className="h-5 w-5 text-green-500" />
+              ) : (
+                <XCircle className="h-5 w-5 text-red-500" />
+              )}
+            </div>
+          )}
         </div>
-        <p id="url-hint" className="text-xs text-muted-foreground">
-          Paste any long URL to create a short, shareable link
-        </p>
+        {/* Validation Message */}
+        {urlValidation.showStatus ? (
+          <p
+            className={`text-xs flex items-center gap-1 ${
+              urlValidation.isValid ? "text-green-500" : "text-red-500"
+            }`}
+          >
+            {urlValidation.message}
+          </p>
+        ) : (
+          <p id="url-hint" className="text-xs text-muted-foreground">
+            Paste any long URL to create a short, shareable link
+          </p>
+        )}
       </div>
 
       {/* Advanced Options Toggle */}
@@ -196,8 +260,8 @@ export function UrlForm({ onSuccess }: UrlFormProps) {
       {/* Submit Button */}
       <Button
         type="submit"
-        disabled={isLoading || !longUrl.trim()}
-        className="w-full h-14 text-base font-semibold bg-primary hover:bg-primary/90 text-primary-foreground transition-all duration-300 shadow-lg hover:shadow-xl hover:shadow-primary/20"
+        disabled={isLoading || !longUrl.trim() || (urlValidation.showStatus && !urlValidation.isValid)}
+        className="w-full h-14 text-base font-semibold bg-primary hover:bg-primary/90 text-primary-foreground transition-all duration-300 shadow-lg hover:shadow-xl hover:shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {isLoading ? (
           <>
