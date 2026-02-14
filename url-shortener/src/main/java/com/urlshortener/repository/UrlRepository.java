@@ -2,6 +2,8 @@ package com.urlshortener.repository;
 
 import com.urlshortener.model.Url;
 import org.springframework.data.mongodb.repository.MongoRepository;
+import org.springframework.data.mongodb.repository.Query;
+import org.springframework.data.mongodb.repository.Update;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
@@ -42,4 +44,8 @@ public interface UrlRepository extends MongoRepository<Url, String> {
      * @param shortCode The short code of the URL to delete
      */
     void deleteByShortCode(String shortCode);
+
+    @Query("{ 'shortCode' : ?0 }")
+    @Update("{ '$inc' : { 'clickCount' : 1 } }")
+    void incrementClickCount(String shortCode);
 }

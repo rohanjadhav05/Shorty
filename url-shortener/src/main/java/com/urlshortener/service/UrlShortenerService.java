@@ -4,6 +4,7 @@ import com.urlshortener.dto.ShortenRequest;
 import com.urlshortener.dto.ShortenResponse;
 import com.urlshortener.dto.UrlStatsResponse;
 import com.urlshortener.exception.InvalidUrlException;
+import com.urlshortener.exception.UrlAlreadyExistsException;
 import com.urlshortener.exception.UrlExpiredException;
 import com.urlshortener.exception.UrlNotFoundException;
 import com.urlshortener.model.Url;
@@ -28,7 +29,19 @@ import java.util.regex.Pattern;
 public class UrlShortenerService {
 
     private static final Logger log = LoggerFactory.getLogger(UrlShortenerService.class);
-    private static final Pattern URL_PATTERN = Pattern.compile("^https?://.+");
+    private static final Pattern URL_PATTERN =  Pattern.compile(
+            "^(https?://)" +
+                    "(" +
+                    "localhost" +
+                    "|" +
+                    "([a-zA-Z0-9-]+\\.)+[a-zA-Z]{2,}" +
+                    "|" +
+                    "(\\d{1,3}\\.){3}\\d{1,3}" +
+                    ")" +
+                    "(:\\d{1,5})?" +
+                    "(/[^\\s]*)?$"
+    );
+
 
     @Autowired
     private UrlRepository urlRepository;
@@ -47,86 +60,122 @@ public class UrlShortenerService {
      * @throws InvalidUrlException if the URL is invalid or custom alias is taken
      */
     public ShortenResponse shortenUrl(ShortenRequest request) {
-        log.info("========== SHORTEN URL REQUEST ==========");
-        log.info("Long URL: {}", request.getLongUrl());
-        log.debug("Custom Alias: {}", request.getCustomAlias());
-        log.debug("Expiration Days: {}", request.getExpirationDays());
 
-        // Validate URL format
-        if (!URL_PATTERN.matcher(request.getLongUrl()).matches()) {
-            log.warn("Invalid URL format received: {}", request.getLongUrl());
+        log.info("========== SHORTEN URL REQUEST ==========");
+        validateUrlFormat(request.getLongUrl());
+        try {
+            String shortCode = resolveShortCode(request);
+            LocalDateTime expiresAt = calculateExpiration(request.getExpirationDays());
+            Url url = createUrlEntity(request.getLongUrl(), shortCode, expiresAt);
+            url = urlRepository.save(url);
+            log.info("URL saved successfully - ID: {}, ShortCode: {}", url.getId(), url.getShortCode());
+            log.info("==========================================");
+            return buildShortenResponse(url);
+        } catch (UrlAlreadyExistsException ex) {
+            log.error("Returning existing shortened URL instead of creating new one");
+            return buildShortenResponse(ex.getExistingUrl());
+        }
+    }
+
+
+    private void validateUrlFormat(String longUrl) {
+        if (!URL_PATTERN.matcher(longUrl).matches()) {
+            log.warn("Invalid URL format received: {}", longUrl);
             throw new InvalidUrlException("Invalid URL format. URL must start with http:// or https://");
         }
         log.debug("URL format validation passed");
+    }
 
-        String shortCode;
+    private String resolveShortCode(ShortenRequest request) {
 
-        // Check if custom alias is provided
-        if (request.getCustomAlias() != null && !request.getCustomAlias().isBlank()) {
-            log.info("Custom alias requested: {}", request.getCustomAlias());
-            
-            // Validate custom alias uniqueness
-            if (urlRepository.existsByShortCode(request.getCustomAlias())) {
-                log.warn("Custom alias '{}' is already in use", request.getCustomAlias());
-                throw new InvalidUrlException("Custom alias '" + request.getCustomAlias() + "' is already in use");
-            }
-            shortCode = request.getCustomAlias();
-            log.info("Custom alias '{}' is available, using it as short code", shortCode);
-        } else {
-            // Check if URL already exists (avoid duplicates)
-            log.debug("Checking if long URL already exists in database...");
-            Optional<Url> existingUrl = urlRepository.findByLongUrl(request.getLongUrl());
-            
-            if (existingUrl.isPresent() && !existingUrl.get().isExpired()) {
-                log.info("Existing short URL found for this long URL: {}", existingUrl.get().getShortCode());
-                log.info("Returning existing short URL instead of creating new one");
-                return buildShortenResponse(existingUrl.get());
-            }
+        if (hasCustomAlias(request)) {
+            return handleCustomAlias(request.getCustomAlias());
+        }
 
-            // Generate new short code
-            log.debug("Generating new Base62 short code...");
+        Optional<Url> existing = findExistingActiveUrl(request.getLongUrl());
+
+        if (existing.isPresent()) {
+            log.info("Existing short URL found: {}", existing.get().getShortCode());
+            throw new UrlAlreadyExistsException(existing.get());
+        }
+
+        return generateUniqueShortCode();
+    }
+
+    private boolean hasCustomAlias(ShortenRequest request) {
+        return request.getCustomAlias() != null && !request.getCustomAlias().isBlank();
+    }
+
+    private String handleCustomAlias(String alias) {
+
+        log.info("Custom alias requested: {}", alias);
+
+        if (urlRepository.existsByShortCode(alias)) {
+            log.warn("Custom alias '{}' already in use", alias);
+            throw new InvalidUrlException("Custom alias '" + alias + "' is already in use");
+        }
+
+        return alias;
+    }
+
+
+    private Optional<Url> findExistingActiveUrl(String longUrl) {
+
+        log.debug("Checking if long URL already exists...");
+
+        Optional<Url> existing = urlRepository.findByLongUrl(longUrl);
+
+        return existing.filter(url -> !url.isExpired());
+    }
+
+
+    private String generateUniqueShortCode() {
+
+        log.debug("Generating new Base62 short code...");
+
+        String shortCode = idGenerator.generateBase62Id();
+        int collisionCount = 0;
+
+        while (urlRepository.existsByShortCode(shortCode)) {
+            collisionCount++;
+            log.warn("Collision detected (attempt {})", collisionCount);
             shortCode = idGenerator.generateBase62Id();
-            log.debug("Generated short code: {}", shortCode);
-
-            // Ensure uniqueness (collision handling)
-            int collisionCount = 0;
-            while (urlRepository.existsByShortCode(shortCode)) {
-                collisionCount++;
-                log.warn("Short code collision detected (attempt {}), regenerating...", collisionCount);
-                shortCode = idGenerator.generateBase62Id();
-            }
-            if (collisionCount > 0) {
-                log.info("Resolved {} collision(s), final short code: {}", collisionCount, shortCode);
-            }
         }
 
-        // Calculate expiration date if provided
-        LocalDateTime expiresAt = null;
-        if (request.getExpirationDays() != null && request.getExpirationDays() > 0) {
-            expiresAt = LocalDateTime.now().plusDays(request.getExpirationDays());
+        if (collisionCount > 0) {
+            log.info("Resolved {} collision(s)", collisionCount);
+        }
+
+        return shortCode;
+    }
+
+
+    private LocalDateTime calculateExpiration(Integer expirationDays) {
+
+        if (expirationDays != null && expirationDays > 0) {
+            LocalDateTime expiresAt = LocalDateTime.now().plusDays(expirationDays);
             log.info("URL will expire on: {}", expiresAt);
-        } else {
-            log.debug("No expiration set, URL will be permanent");
+            return expiresAt;
         }
 
-        // Create and save URL entity
+        log.debug("No expiration set");
+        return null;
+    }
+
+
+    private Url createUrlEntity(String longUrl, String shortCode, LocalDateTime expiresAt) {
+
         log.debug("Creating URL entity...");
-        Url url = Url.builder()
+
+        return Url.builder()
                 .shortCode(shortCode)
-                .longUrl(request.getLongUrl())
+                .longUrl(longUrl)
                 .createdAt(LocalDateTime.now())
                 .expiresAt(expiresAt)
                 .clickCount(0L)
                 .build();
-
-        log.debug("Saving URL to database...");
-        url = urlRepository.save(url);
-        log.info("URL saved successfully - ID: {}, ShortCode: {}", url.getId(), url.getShortCode());
-        log.info("Short URL created: {}/{}", baseUrl, shortCode);
-        log.info("==========================================");
-
-        return buildShortenResponse(url);
     }
+
 
     /**
      * Gets the long URL for a short code.
@@ -137,40 +186,24 @@ public class UrlShortenerService {
      * @throws UrlNotFoundException if the short code is not found
      * @throws UrlExpiredException  if the URL has expired
      */
-    @Cacheable(value = "urls", key = "#shortCode")
     public String getLongUrl(String shortCode) {
-        log.info("========== GET LONG URL REQUEST ==========");
-        log.info("getLongUrl :: Short code: {}", shortCode);
+        Url url = getCacheableUrl(shortCode);
+        if (url.isExpired()) {
+            throw new UrlExpiredException(shortCode);
+        }
+        urlRepository.incrementClickCount(shortCode); // atomic DB update
+        return url.getLongUrl();
+    }
 
-        log.debug("getLongUrl :: Looking up short code in database...");
-        Url url = urlRepository.findByShortCode(shortCode)
+    @Cacheable(value = "urls", key = "#shortCode")
+    public Url getCacheableUrl(String shortCode) {
+        return urlRepository.findByShortCode(shortCode)
                 .orElseThrow(() -> {
                     log.error("URL not found for short code: {}", shortCode);
                     return new UrlNotFoundException("URL not found for short code: " + shortCode);
                 });
-        log.debug("URL found - ID: {}", url.getId());
-
-        // Check expiration
-        if (url.isExpired()) {
-            log.warn("URL has expired! Short code: {}, Expired at: {}", shortCode, url.getExpiresAt());
-            throw new UrlExpiredException(shortCode);
-        }
-        log.debug("URL is not expired");
-
-        // Increment click count
-        long previousCount = url.getClickCount() != null ? url.getClickCount() : 0;
-        url.incrementClickCount();
-        log.debug("Click count incremented: {} -> {}", previousCount, url.getClickCount());
-        
-        urlRepository.save(url);
-        log.debug("Updated click count saved to database");
-
-        log.info("Redirecting to: {}", url.getLongUrl());
-        log.info("Total clicks for this URL: {}", url.getClickCount());
-        log.info("==========================================");
-
-        return url.getLongUrl();
     }
+
 
     /**
      * Gets statistics for a shortened URL.
@@ -182,22 +215,7 @@ public class UrlShortenerService {
     public UrlStatsResponse getUrlStats(String shortCode) {
         log.info("========== GET URL STATS REQUEST ==========");
         log.info("Short code: {}", shortCode);
-
-        log.debug("Looking up short code in database...");
-        Url url = urlRepository.findByShortCode(shortCode)
-                .orElseThrow(() -> {
-                    log.error("URL not found for short code: {}", shortCode);
-                    return new UrlNotFoundException("URL not found for short code: " + shortCode);
-                });
-
-        log.info("Stats retrieved - Short code: {}", url.getShortCode());
-        log.info("  Long URL: {}", url.getLongUrl());
-        log.info("  Click count: {}", url.getClickCount());
-        log.info("  Created at: {}", url.getCreatedAt());
-        log.info("  Expires at: {}", url.getExpiresAt() != null ? url.getExpiresAt() : "Never");
-        log.info("  Is expired: {}", url.isExpired());
-        log.info("===========================================");
-
+        Url url = getUrlFromDB(shortCode);
         return UrlStatsResponse.builder()
                 .shortCode(url.getShortCode())
                 .longUrl(url.getLongUrl())
@@ -205,6 +223,13 @@ public class UrlShortenerService {
                 .createdAt(url.getCreatedAt())
                 .expiresAt(url.getExpiresAt())
                 .build();
+    }
+
+    private Url getUrlFromDB(String shortCode) {
+        return urlRepository.findByShortCode(shortCode)
+                .orElseThrow(() -> {
+                    return new UrlNotFoundException("URL not found for short code: " + shortCode);
+                });
     }
 
     /**
@@ -216,17 +241,13 @@ public class UrlShortenerService {
     @CacheEvict(value = "urls", key = "#shortCode")
     public void deleteUrl(String shortCode) {
         log.info("========== DELETE URL REQUEST ==========");
-        log.info("Short code to delete: {}", shortCode);
-
         if (!urlRepository.existsByShortCode(shortCode)) {
             log.error("Cannot delete - URL not found for short code: {}", shortCode);
             throw new UrlNotFoundException("URL not found for short code: " + shortCode);
         }
 
-        log.debug("URL exists, proceeding with deletion...");
         urlRepository.deleteByShortCode(shortCode);
         log.info("URL deleted successfully - Short code: {}", shortCode);
-        log.info("Cache evicted for short code: {}", shortCode);
         log.info("========================================");
     }
 
